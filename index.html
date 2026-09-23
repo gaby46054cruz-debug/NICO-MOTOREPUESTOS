@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nico Motorepuestos - Cargando...</title>
+  <style>
+    :root {
+      --bg-color: #0a0a0a;
+      --card-bg: #141414;
+      --red-accent: #ff002b;
+      --white-text: #f5f5f5;
+      --gray-dim: #333333;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Roboto, -apple-system, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--white-text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1rem;
+      overflow: hidden;
+    }
+
+    /* Contenedor Principal (Tablero Digital) */
+    .dashboard {
+      width: 100%;
+      max-width: 500px;
+      background: var(--card-bg);
+      border: 2px solid var(--gray-dim);
+      border-top: 4px solid var(--red-accent);
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 0 35px rgba(255, 0, 43, 0.25);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      position: relative;
+    }
+
+    /* Encabezado del Tablero */
+    .brand-header {
+      text-align: center;
+      width: 100%;
+      border-bottom: 1px solid var(--gray-dim);
+      padding-bottom: 1rem;
+    }
+
+    .brand-title {
+      font-size: 1.8rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--white-text);
+    }
+
+    .brand-title span {
+      color: var(--red-accent);
+    }
+
+    .status-text {
+      font-size: 0.85rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-top: 4px;
+    }
+
+    /* Tacómetro / Tacómetro Digital */
+    .rpm-bar-container {
+      width: 100%;
+      background: #000;
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid var(--gray-dim);
+    }
+
+    .rpm-bar {
+      height: 12px;
+      width: 0%;
+      background: linear-gradient(90deg, var(--white-text) 0%, var(--red-accent) 100%);
+      border-radius: 4px;
+      animation: rpmFill 5s linear forwards;
+    }
+
+    /* Pantalla Central del Tablero */
+    .display-screen {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      width: 100%;
+      background: #000;
+      border-radius: 12px;
+      padding: 1.5rem;
+      border: 1px solid #222;
+    }
+
+    .gear-indicator {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .gear-label {
+      font-size: 0.75rem;
+      color: #666;
+      text-transform: uppercase;
+    }
+
+    .gear-val {
+      font-size: 2.5rem;
+      font-weight: bold;
+      color: var(--red-accent);
+      text-shadow: 0 0 10px rgba(255, 0, 43, 0.6);
+    }
+
+    .speedometer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .counter {
+      font-size: 3.5rem;
+      font-weight: 900;
+      color: var(--white-text);
+      line-height: 1;
+      font-family: monospace;
+      text-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+    }
+
+    .unit {
+      font-size: 0.8rem;
+      color: var(--red-accent);
+      font-weight: bold;
+      margin-top: 4px;
+    }
+
+    /* Indicador de Luces/Alerta */
+    .dashboard-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .shift-light {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: var(--red-accent);
+      box-shadow: 0 0 10px var(--red-accent);
+      animation: blink 0.8s infinite alternate;
+    }
+
+    .loading-msg {
+      font-size: 0.9rem;
+      letter-spacing: 1px;
+      color: var(--white-text);
+      text-transform: uppercase;
+    }
+
+    /* Animaciones */
+    @keyframes rpmFill {
+      0% { width: 0%; }
+      100% { width: 100%; }
+    }
+
+    @keyframes blink {
+      from { opacity: 0.3; }
+      to { opacity: 1; }
+    }
+
+    /* Ajustes para pantallas pequeñas */
+    @media (max-width: 480px) {
+      .dashboard {
+        padding: 1.25rem;
+      }
+      .brand-title {
+        font-size: 1.4rem;
+      }
+      .counter {
+        font-size: 2.8rem;
+      }
+      .gear-val {
+        font-size: 2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dashboard">
+    <div class="brand-header">
+      <h1 class="brand-title">Nico <span>Motorepuestos</span></h1>
+      <p class="status-text">Iniciando sistema...</p>
+    </div>
+
+    <!-- Barra Estilo Tacómetro -->
+    <div class="rpm-bar-container">
+      <div class="rpm-bar"></div>
+    </div>
+
+    <!-- Pantalla Digital -->
+    <div class="display-screen">
+      <div class="gear-indicator">
+        <span class="gear-label">Marcha</span>
+        <span class="gear-val">N</span>
+      </div>
+      <div class="speedometer">
+        <span class="counter" id="timer">5</span>
+        <span class="unit">SEG</span>
+      </div>
+    </div>
+
+    <div class="dashboard-footer">
+      <div class="shift-light"></div>
+      <span class="loading-msg">Redirigiendo...</span>
+    </div>
+  </div>
+
+  <script>
+    let seconds = 5;
+    const timerElement = document.getElementById('timer');
+    const destinationUrl = 'nicolas.html'; // Cambia esta URL por la de tu página principal
+
+    const countdown = setInterval(() => {
+      seconds--;
+      timerElement.textContent = seconds;
+
+      if (seconds <= 0) {
+        clearInterval(countdown);
+        window.location.href = destinationUrl;
+      }
+    }, 1000);
+  </script>
+
+</body>
+</html>

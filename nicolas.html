@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nico Motorepuesto</title>
+  <link rel="stylesheet" href="nicolas.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+  <!-- LOADER INICIAL: Evita que se vea la estructura por defecto antes de cargar Firebase -->
+  <div id="initial-loader" class="loader-overlay">
+    <div class="spinner"></div>
+    <p>Cargando tienda...</p>
+  </div>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <div id="main-app" class="main-app-container hidden">
+    
+    <!-- CONTENIDO SUPERIOR Y CENTRAL -->
+    <div class="content-wrapper">
+      <!-- ENCABEZADO -->
+      <header id="site-header">
+        <div class="header-brand">
+          <div class="logo-container">
+            <img id="header-logo-img" src="" alt="Logo" class="hidden">
+          </div>
+          <h1 id="header-title">Nico Motorepuesto</h1>
+        </div>
+
+        <!-- SECCIONES DE ENCABEZADO (Dirección, Ubicación, Contacto, etc.) -->
+        <nav id="header-nav" class="header-nav-container"></nav>
+      </header>
+
+      <!-- MENSAJE DESTACADO -->
+      <div id="hero-message" class="hero-message hidden">
+        <p id="hero-text"></p>
+      </div>
+
+      <!-- SECCIÓN DE OFERTAS / PROMOCIONES / AVISOS CON CARRUSEL Y VIDEO -->
+      <section id="promotions-section" class="promotions-container hidden">
+        <h2><i class="fa-solid fa-fire"></i> Ofertas & Promociones</h2>
+        <div id="promotions-grid" class="promotions-grid"></div>
+      </section>
+
+      <!-- FILTRO DE SECCIONES DE PRODUCTOS -->
+      <section class="categories-wrapper">
+        <div id="categories-scroll" class="categories-scroll">
+          <button class="cat-btn active" data-category="todos">Todos</button>
+        </div>
+      </section>
+
+      <!-- CATÁLOGO DE PRODUCTOS -->
+      <main class="catalog-container">
+        <div id="products-grid" class="products-grid"></div>
+      </main>
+    </div>
+
+    <!-- PIE DE PÁGINA SIEMPRE ABAJO CON CRÉDITOS DISCRETOS Y LINK DE WHATSAPP -->
+    <footer id="site-footer">
+      <div id="footer-content"></div>
+      <div class="author-credits">
+        <span>Desarrollado por <a id="author-link" href="https://wa.me/qr/FTC5DR5YZ2XZA1" target="_blank" class="author-wa-link">Gabriel Cruz</a></span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- BOTÓN FLOTANTE DEL CARRITO -->
+  <button id="cart-floating-btn" class="cart-floating-btn">
+    <i class="fa-solid fa-cart-shopping"></i>
+    <span id="cart-badge" class="cart-badge">0</span>
+  </button>
+
+  <!-- MODAL DE CARRITO -->
+  <div id="cart-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-basket-shopping"></i> Tu Carrito de Compras</h3>
+        <button class="close-modal-btn" data-close="cart-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="cart-items-list" class="cart-items-list"></div>
+        <div class="cart-summary">
+          <span>Total:</span>
+          <strong id="cart-total-price">$0</strong>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-send-whatsapp" class="whatsapp-btn">
+          <i class="fa-brands fa-whatsapp"></i> Continuar compra por WhatsApp
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE IMAGEN CON ZOOM -->
+  <div id="image-zoom-modal" class="modal-overlay hidden">
+    <div class="modal-card zoom-card">
+      <button class="close-modal-btn" data-close="image-zoom-modal">&times;</button>
+      <div class="zoom-img-wrapper">
+        <img id="zoomed-image" src="" alt="Vista ampliada">
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE LOGIN ADMIN -->
+  <div id="login-modal" class="modal-overlay hidden">
+    <div class="modal-card login-card">
+      <div class="modal-header">
+        <h3>Acceso de Administración</h3>
+        <button class="close-modal-btn" data-close="login-modal">&times;</button>
+      </div>
+      <form id="login-form" class="modal-body">
+        <div class="form-group">
+          <label for="login-email">Correo Electrónico</label>
+          <input type="email" id="login-email" required placeholder="admin@nicomotorepuesto.com">
+        </div>
+        <div class="form-group">
+          <label for="login-password">Contraseña</label>
+          <input type="password" id="login-password" required placeholder="••••••••">
+        </div>
+        <p id="login-error" class="error-msg hidden"></p>
+        <button type="submit" class="submit-btn">Ingresar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- PANEL DE ADMINISTRACIÓN COMPLETO -->
+  <div id="admin-panel-modal" class="modal-overlay hidden">
+    <div class="modal-card admin-card">
+      <div class="modal-header">
+        <h2><i class="fa-solid fa-gears"></i> Panel de Administración</h2>
+        <div class="admin-header-actions">
+          <button id="admin-logout-btn" class="logout-btn">Cerrar Sesión</button>
+          <button class="close-modal-btn" data-close="admin-panel-modal">&times;</button>
+        </div>
+      </div>
+
+      <!-- BOTONES DE MENÚ DEL ADMIN -->
+      <div class="admin-menu-bar">
+        <button class="admin-tab-btn active" data-tab="tab-logo"><i class="fa-solid fa-image"></i> Logo & Nombre</button>
+        <button class="admin-tab-btn" data-tab="tab-header-nav"><i class="fa-solid fa-bars"></i> Enlaces Encabezado</button>
+        <button class="admin-tab-btn" data-tab="tab-promos"><i class="fa-solid fa-tags"></i> Avisos & Promos</button>
+        <button class="admin-tab-btn" data-tab="tab-categories"><i class="fa-solid fa-list-check"></i> Categorías</button>
+        <button class="admin-tab-btn" data-tab="tab-products"><i class="fa-solid fa-box-open"></i> Productos</button>
+        <button class="admin-tab-btn" data-tab="tab-customize"><i class="fa-solid fa-palette"></i> Personalizar Página</button>
+      </div>
+
+      <div class="admin-content-body">
+        
+        <!-- PESTAÑA: LOGO Y NOMBRE -->
+        <div id="tab-logo" class="admin-tab-content">
+          <h3>Configurar Identidad de la Marca</h3>
+          <form id="form-logo-config">
+            <div class="form-group">
+              <label for="input-brand-name">Nombre de la Empresa</label>
+              <input type="text" id="input-brand-name" required placeholder="Nico Motorepuesto">
+            </div>
+            <div class="form-group">
+              <label for="input-logo-url">URL de la Imagen del Logo</label>
+              <input type="url" id="input-logo-url" placeholder="https://ejemplo.com/logo.jpg">
+            </div>
+            <div class="form-group">
+              <label for="input-hero-text">Mensaje Corto de Bienvenida (Opcional)</label>
+              <input type="text" id="input-hero-text" placeholder="¡Los mejores repuestos con el mejor precio!">
+            </div>
+            <button type="submit" class="submit-btn">Guardar Cambios de Identidad</button>
+          </form>
+        </div>
+
+        <!-- PESTAÑA: SECCIONES ENCABEZADO -->
+        <div id="tab-header-nav" class="admin-tab-content hidden">
+          <h3>Gestión de Enlaces de Encabezado</h3>
+          <form id="form-header-link" class="admin-form">
+            <input type="hidden" id="input-link-id">
+            <div class="form-group">
+              <label>Emoji o Ícono (Opcional)</label>
+              <input type="text" id="input-link-emoji" placeholder="📍">
+            </div>
+            <div class="form-group">
+              <label>Nombre del Enlace</label>
+              <input type="text" id="input-link-title" required placeholder="Ubicación">
+            </div>
+            <div class="form-group">
+              <label>URL de Redirección</label>
+              <input type="url" id="input-link-url" required placeholder="https://maps.google.com/...">
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="submit-btn">Guardar Enlace</button>
+              <button type="button" id="cancel-link-edit" class="cancel-btn hidden">Cancelar</button>
+            </div>
+          </form>
+          <h4>Enlaces Actuales</h4>
+          <div id="admin-links-list" class="admin-items-list"></div>
+        </div>
+
+        <!-- PESTAÑA: PROMOCIONES Y AVISOS CON OPCIONES MEDIA -->
+        <div id="tab-promos" class="admin-tab-content hidden">
+          <h3>Publicaciones, Ofertas y Avisos</h3>
+          <form id="form-promo" class="admin-form">
+            <input type="hidden" id="input-promo-id">
+            <div class="form-group">
+              <label>Título del Aviso / Promoción</label>
+              <input type="text" id="input-promo-title" required placeholder="OFERTA DE LA SEMANA">
+            </div>
+            <div class="form-group">
+              <label>Descripción</label>
+              <textarea id="input-promo-desc" required placeholder="Detalles de la oferta..."></textarea>
+            </div>
+
+            <!-- TIPO DE CONTENIDO MULTIMEDIA -->
+            <div class="form-group">
+              <label>Tipo de Contenido Multimedia</label>
+              <select id="select-promo-media-type">
+                <option value="single_image">Una sola Imagen</option>
+                <option value="carousel">Carrusel de Imágenes</option>
+                <option value="video">Video (Auto-reproducción)</option>
+              </select>
+            </div>
+
+            <!-- CAMPO: FOTO ÚNICA -->
+            <div id="media-input-single" class="media-input-group">
+              <div class="form-group">
+                <label>URL de la Imagen</label>
+                <input type="url" id="input-promo-single-img" placeholder="https://ejemplo.com/promo.jpg">
+              </div>
+            </div>
+
+            <!-- CAMPO: CARRUSEL -->
+            <div id="media-input-carousel" class="media-input-group hidden">
+              <div class="form-group">
+                <label>Cantidad de Imágenes (1 a 5)</label>
+                <select id="select-promo-carousel-count">
+                  <option value="2">2 Imágenes</option>
+                  <option value="3" selected>3 Imágenes</option>
+                  <option value="4">4 Imágenes</option>
+                  <option value="5">5 Imágenes</option>
+                </select>
+              </div>
+              <div id="carousel-urls-container"></div>
+            </div>
+
+            <!-- CAMPO: VIDEO -->
+            <div id="media-input-video" class="media-input-group hidden">
+              <div class="form-group">
+                <label>URL del Video (mp4, webm)</label>
+                <input type="url" id="input-promo-video-url" placeholder="https://ejemplo.com/video.mp4">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Precio Especial (Opcional)</label>
+              <input type="number" id="input-promo-price" step="0.01" placeholder="9999.99">
+            </div>
+            <div class="form-group">
+              <label>Fecha Límite de Validez (Opcional)</label>
+              <input type="date" id="input-promo-date">
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="submit-btn">Guardar Publicación</button>
+              <button type="button" id="cancel-promo-edit" class="cancel-btn hidden">Cancelar Edición</button>
+            </div>
+          </form>
+          <h4>Promociones Registradas</h4>
+          <div id="admin-promos-list" class="admin-items-list"></div>
+        </div>
+
+        <!-- PESTAÑA: CATEGORÍAS DE PRODUCTOS -->
+        <div id="tab-categories" class="admin-tab-content hidden">
+          <h3>Gestión de Secciones de Productos</h3>
+          <form id="form-category" class="admin-form">
+            <input type="hidden" id="input-cat-id">
+            <div class="form-group">
+              <label>Nombre de la Sección (Ej: Caños de Escape, Carburadores)</label>
+              <input type="text" id="input-cat-name" required placeholder="Caños de Escape">
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="submit-btn">Guardar Sección</button>
+              <button type="button" id="cancel-cat-edit" class="cancel-btn hidden">Cancelar Edición</button>
+            </div>
+          </form>
+          <h4>Secciones Creadas</h4>
+          <div id="admin-categories-list" class="admin-items-list"></div>
+        </div>
+
+        <!-- PESTAÑA: PRODUCTOS (INDIVIDUAL, TANDA Y VER POR SECCIÓN) -->
+        <div id="tab-products" class="admin-tab-content hidden">
+          <h3>Gestión Completa de Productos</h3>
+          <div class="sub-tab-actions">
+            <button id="sub-btn-single-prod" class="sub-tab-btn active"><i class="fa-solid fa-plus"></i> Crear Producto Individual</button>
+            <button id="sub-btn-batch-prod" class="sub-tab-btn"><i class="fa-solid fa-layer-group"></i> Crear Productos por Tanda</button>
+            <button id="sub-btn-view-prods" class="sub-tab-btn"><i class="fa-solid fa-table-list"></i> Ver / Filtrar Productos</button>
+          </div>
+
+          <!-- SUB-SECCIÓN: FORMULARIO PRODUCTO INDIVIDUAL -->
+          <div id="sub-view-single-prod" class="sub-tab-view">
+            <form id="form-product" class="admin-form">
+              <input type="hidden" id="input-prod-id">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Código del Producto</label>
+                  <input type="text" id="input-prod-code" required placeholder="MOTO-001">
+                </div>
+                <div class="form-group">
+                  <label>Sección / Categoría</label>
+                  <select id="select-prod-category" required></select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Título del Producto</label>
+                <input type="text" id="input-prod-title" required placeholder="Carburador 150cc">
+              </div>
+              <div class="form-group">
+                <label>Descripción</label>
+                <textarea id="input-prod-desc" placeholder="Especificaciones técnicas..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>URL de Imagen</label>
+                <input type="url" id="input-prod-img" placeholder="https://ejemplo.com/repuesto.jpg">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Precio Anterior ($)</label>
+                  <input type="number" id="input-prod-old-price" step="0.01" placeholder="0.00">
+                </div>
+                <div class="form-group">
+                  <label>Precio Actual ($)</label>
+                  <input type="number" id="input-prod-price" step="0.01" required placeholder="15000.00">
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="submit-btn">Guardar Producto</button>
+                <button type="button" id="cancel-prod-edit" class="cancel-btn hidden">Cancelar Edición</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- SUB-SECCIÓN: CREACIÓN POR TANDA -->
+          <div id="sub-view-batch-prod" class="sub-tab-view hidden">
+            <form id="form-batch-product" class="admin-form">
+              <div class="form-group">
+                <label>Cantidad de productos a crear</label>
+                <input type="number" id="input-batch-count" min="1" max="100" value="10" required>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Prefijo de Código (Ej: DF)</label>
+                  <input type="text" id="input-batch-prefix" required value="DF">
+                </div>
+                <div class="form-group">
+                  <label>Número Inicial (Ej: 1)</label>
+                  <input type="number" id="input-batch-start-num" required value="1">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Nombre Base Genérico</label>
+                <input type="text" id="input-batch-name" required value="Producto Genérico Moto">
+              </div>
+              <div class="form-group">
+                <label>Sección de Asignación</label>
+                <select id="select-batch-category" required></select>
+              </div>
+              <div class="form-group">
+                <label>Precio Genérico ($)</label>
+                <input type="number" id="input-batch-price" step="0.01" required value="1.00">
+              </div>
+              <p class="help-text">* No es obligatorio incluir la imagen ni descripciones detalladas en la tanda. Podrás editarlos después individualmente de forma rápida.</p>
+              <button type="submit" class="submit-btn">Generar Tanda de Productos</button>
+            </form>
+          </div>
+
+          <!-- SUB-SECCIÓN: VER / FILTRAR PRODUCTOS -->
+          <div id="sub-view-list-prod" class="sub-tab-view hidden">
+            <div class="filter-bar">
+              <label>Seleccionar Sección para listar:</label>
+              <select id="select-filter-admin-category">
+                <option value="todos">-- Ver Todos los Productos --</option>
+              </select>
+            </div>
+            <div id="admin-products-list" class="admin-items-list"></div>
+          </div>
+        </div>
+
+        <!-- PESTAÑA: PERSONALIZAR PÁGINA -->
+        <div id="tab-customize" class="admin-tab-content hidden">
+          <h3>Personalizar Apariencia Visual</h3>
+          <form id="form-customize">
+            <div class="form-group">
+              <label>Tipo de Estilo de Color</label>
+              <div class="radio-group">
+                <label><input type="radio" name="colorType" value="solid" checked> Colores Sólidos</label>
+                <label><input type="radio" name="colorType" value="neon"> Colores Neón</label>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Color de Encabezado</label>
+                <input type="color" id="input-color-header" value="#121212">
+              </div>
+              <div class="form-group">
+                <label>Color de Fondo General</label>
+                <input type="color" id="input-color-bg" value="#0a0a0a">
+              </div>
+              <div class="form-group">
+                <label>Color Principal / Acento</label>
+                <input type="color" id="input-color-accent" value="#00f3ff">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Color de Tarjetas</label>
+                <input type="color" id="input-color-card" value="#1e1e1e">
+              </div>
+              <div class="form-group">
+                <label>Color de Texto Principal</label>
+                <input type="color" id="input-color-text" value="#ffffff">
+              </div>
+              <div class="form-group">
+                <label>Color del Pie de Página</label>
+                <input type="color" id="input-color-footer" value="#121212">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>URL de Imagen de Fondo (Opcional)</label>
+              <input type="url" id="input-bg-image-url" placeholder="https://ejemplo.com/fondo.jpg">
+            </div>
+
+            <div class="form-group">
+              <label>Número de WhatsApp para Pedidos (Sin + ni espacios)</label>
+              <input type="text" id="input-whatsapp-number" placeholder="543811234567" required>
+            </div>
+
+            <div class="form-group">
+              <label>Información / Texto del Pie de Página</label>
+              <input type="text" id="input-footer-info" placeholder="Nico Motorepuesto - Todos los derechos reservados">
+            </div>
+
+            <button type="submit" class="submit-btn">Guardar y Aplicar Apariencia</button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTÓN DISCRETO PARA ABRIR PANEL DE ADMIN EN EL PIE DE PÁGINA -->
+  <button id="open-admin-trigger" class="admin-trigger-btn" title="Panel Admin"><i class="fa-solid fa-lock"></i></button>
+
+  <script type="module" src="nicolas.js"></script>
+</body>
+</html>
