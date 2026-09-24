@@ -326,7 +326,7 @@ document.getElementById("btn-send-whatsapp").addEventListener("click", () => {
   }
 
   let total = 0;
-  let msg = `*Deseo realizar esta compra en ${appData.config.brandName || 'Nico Motorepuesto'}*\n\n`;
+  let msg = `*Hola,Deseo realizar esta compra en ${appData.config.brandName || 'Nico Motorepuesto'}*\n\n`;
   msg += `*Detalle del pedido:*\n`;
 
   cart.forEach((item, i) => {
