@@ -1,12 +1,12 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { 
-  getFirestore, doc, onSnapshot, setDoc
+  getFirestore, doc, collection, onSnapshot, setDoc, deleteDoc 
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { 
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged 
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 
-// 1. CONFIGURACIÓN E INICIALIZACIÓN DE FIREBASE (SEGUNDA APP Y COLECCIÓN Nicolas)
+// 1. CONFIGURACIÓN E INICIALIZACIÓN DE FIREBASE
 const firebaseConfig = {
   apiKey: "AIzaSyA-Q-JeopKI_t_u7jnBxcMCmePfvLeSg7k",
   authDomain: "tienda-relojes-gc.firebaseapp.com",
@@ -21,7 +21,12 @@ const app = initializeApp(firebaseConfig, "NicoMotorepuestoApp");
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-const COLLECTION_NAME = "Nicolas";
+// REFERENCIAS A COLECCIONES INDEPENDIENTES (CERO SOBREESCRITURA)
+const configRef = doc(db, "Nicolas_config", "storeData");
+const productsCol = collection(db, "Nicolas_products");
+const categoriesCol = collection(db, "Nicolas_categories");
+const promotionsCol = collection(db, "Nicolas_promotions");
+const headerNavCol = collection(db, "Nicolas_headerNav");
 
 // ESTADO GLOBAL DE LA APLICACIÓN
 let appData = {
@@ -53,33 +58,57 @@ let currentCategoryFilter = "todos";
 let isInitialLoaded = false;
 let carouselIndexes = {};
 
-// 2. ESCUCHADOR DE FIRESTORE EN TIEMPO REAL
-const docRef = doc(db, COLLECTION_NAME, "storeData");
-
-onSnapshot(docRef, (docSnap) => {
+// 2. ESCUCHADORES DE FIRESTORE EN TIEMPO REAL (INDIVIDUALES)
+onSnapshot(configRef, (docSnap) => {
   if (docSnap.exists()) {
-    appData = docSnap.data();
-    if (!appData.promotions) appData.promotions = [];
-    if (!appData.categories) appData.categories = [];
-    if (!appData.headerNav) appData.headerNav = [];
-    if (!appData.products) appData.products = [];
+    appData.config = docSnap.data();
   } else {
-    setDoc(docRef, appData);
+    setDoc(configRef, appData.config);
   }
-  
   applyStyles(appData.config.styles);
   renderHeader();
-  renderPromotions();
-  renderCategories();
-  renderProducts();
   renderFooter();
+  checkInitialLoad();
+});
 
+onSnapshot(productsCol, (snapshot) => {
+  appData.products = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderProducts();
+  renderAdminProductsList();
+  checkInitialLoad();
+});
+
+onSnapshot(categoriesCol, (snapshot) => {
+  appData.categories = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderCategories();
+  populateCategorySelects();
+  renderAdminLists();
+  checkInitialLoad();
+});
+
+onSnapshot(promotionsCol, (snapshot) => {
+  appData.promotions = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderPromotions();
+  renderAdminLists();
+  checkInitialLoad();
+});
+
+onSnapshot(headerNavCol, (snapshot) => {
+  appData.headerNav = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderHeader();
+  renderAdminLists();
+  checkInitialLoad();
+});
+
+function checkInitialLoad() {
   if (!isInitialLoaded) {
-    document.getElementById("initial-loader").classList.add("hidden");
-    document.getElementById("main-app").classList.remove("hidden");
+    const loader = document.getElementById("initial-loader");
+    const mainApp = document.getElementById("main-app");
+    if (loader) loader.classList.add("hidden");
+    if (mainApp) mainApp.classList.remove("hidden");
     isInitialLoaded = true;
   }
-});
+}
 
 // APLICACIÓN DINÁMICA DE ESTILOS
 function applyStyles(s) {
@@ -455,9 +484,9 @@ function renderCarouselUrlInputs(existingUrls = []) {
 mediaTypeSelect.addEventListener("change", updateMediaInputVisibility);
 carouselCountSelect.addEventListener("change", () => renderCarouselUrlInputs());
 
-// 5. GUARDADO EN FIRESTORE Y ACCIONES ADMIN
-async function saveStoreData() {
-  await setDoc(docRef, appData);
+// 5. OPERACIONES ADMIN DE ESCRITURA Y ELIMINACIÓN
+async function saveConfigData() {
+  await setDoc(configRef, appData.config);
 }
 
 function loadAdminFormData() {
@@ -499,7 +528,7 @@ document.getElementById("form-logo-config").addEventListener("submit", async (e)
   appData.config.brandName = document.getElementById("input-brand-name").value;
   appData.config.logoUrl = document.getElementById("input-logo-url").value;
   appData.config.heroText = document.getElementById("input-hero-text").value;
-  await saveStoreData();
+  await saveConfigData();
   alert("Identidad actualizada correctamente");
 });
 
@@ -508,23 +537,16 @@ document.getElementById("form-header-link").addEventListener("submit", async (e)
   e.preventDefault();
   const id = document.getElementById("input-link-id").value || Date.now().toString();
   const linkObj = {
-    id,
     emoji: document.getElementById("input-link-emoji").value,
     title: document.getElementById("input-link-title").value,
     url: document.getElementById("input-link-url").value
   };
 
-  appData.headerNav = appData.headerNav || [];
-  const idx = appData.headerNav.findIndex(l => l.id === id);
-  if (idx >= 0) appData.headerNav[idx] = linkObj;
-  else appData.headerNav.push(linkObj);
-
-  await saveStoreData();
+  await setDoc(doc(headerNavCol, id), linkObj);
   e.target.reset();
-  renderAdminLists();
 });
 
-// PROMOCIONES Y AVISOS (CON CARRUSEL Y VIDEO)
+// PROMOCIONES Y AVISOS
 document.getElementById("form-promo").addEventListener("submit", async (e) => {
   e.preventDefault();
   const id = document.getElementById("input-promo-id").value || Date.now().toString();
@@ -546,7 +568,6 @@ document.getElementById("form-promo").addEventListener("submit", async (e) => {
   }
 
   const promoObj = {
-    id,
     title: document.getElementById("input-promo-title").value,
     desc: document.getElementById("input-promo-desc").value,
     mediaType: mediaType,
@@ -557,18 +578,12 @@ document.getElementById("form-promo").addEventListener("submit", async (e) => {
     validUntil: document.getElementById("input-promo-date").value
   };
 
-  appData.promotions = appData.promotions || [];
-  const idx = appData.promotions.findIndex(p => p.id === id);
-  if (idx >= 0) appData.promotions[idx] = promoObj;
-  else appData.promotions.push(promoObj);
-
-  await saveStoreData();
+  await setDoc(doc(promotionsCol, id), promoObj);
   e.target.reset();
   document.getElementById("input-promo-id").value = "";
   document.getElementById("cancel-promo-edit").classList.add("hidden");
   updateMediaInputVisibility();
   alert("¡Aviso / Promoción guardado con éxito!");
-  renderAdminLists();
 });
 
 document.getElementById("cancel-promo-edit").addEventListener("click", () => {
@@ -582,19 +597,12 @@ document.getElementById("cancel-promo-edit").addEventListener("click", () => {
 document.getElementById("form-category").addEventListener("submit", async (e) => {
   e.preventDefault();
   const id = document.getElementById("input-cat-id").value || Date.now().toString();
-  const catObj = { id, name: document.getElementById("input-cat-name").value };
+  const catObj = { name: document.getElementById("input-cat-name").value };
 
-  appData.categories = appData.categories || [];
-  const idx = appData.categories.findIndex(c => c.id === id);
-  if (idx >= 0) appData.categories[idx] = catObj;
-  else appData.categories.push(catObj);
-
-  await saveStoreData();
+  await setDoc(doc(categoriesCol, id), catObj);
   e.target.reset();
   document.getElementById("input-cat-id").value = "";
   document.getElementById("cancel-cat-edit").classList.add("hidden");
-  populateCategorySelects();
-  renderAdminLists();
   alert("Sección guardada correctamente");
 });
 
@@ -609,7 +617,6 @@ document.getElementById("form-product").addEventListener("submit", async (e) => 
   e.preventDefault();
   const id = document.getElementById("input-prod-id").value || Date.now().toString();
   const prodObj = {
-    id,
     code: document.getElementById("input-prod-code").value,
     categoryId: document.getElementById("select-prod-category").value,
     title: document.getElementById("input-prod-title").value,
@@ -619,15 +626,11 @@ document.getElementById("form-product").addEventListener("submit", async (e) => 
     price: document.getElementById("input-prod-price").value
   };
 
-  appData.products = appData.products || [];
-  const idx = appData.products.findIndex(p => p.id === id);
-  if (idx >= 0) appData.products[idx] = prodObj;
-  else appData.products.push(prodObj);
-
-  await saveStoreData();
+  await setDoc(doc(productsCol, id), prodObj);
   e.target.reset();
+  document.getElementById("input-prod-id").value = "";
+  document.getElementById("cancel-prod-edit").classList.add("hidden");
   alert("Producto guardado correctamente");
-  renderAdminLists();
 });
 
 // CREACIÓN POR TANDA
@@ -640,12 +643,11 @@ document.getElementById("form-batch-product").addEventListener("submit", async (
   const categoryId = document.getElementById("select-batch-category").value;
   const price = document.getElementById("input-batch-price").value;
 
-  appData.products = appData.products || [];
-
+  const promises = [];
   for (let i = 0; i < count; i++) {
     const code = `${prefix}-${startNum + i}`;
-    appData.products.push({
-      id: `${Date.now()}_${i}`,
+    const newId = `${Date.now()}_${i}`;
+    const newProd = {
       code: code,
       categoryId: categoryId,
       title: `${baseName} ${code}`,
@@ -653,12 +655,13 @@ document.getElementById("form-batch-product").addEventListener("submit", async (
       imgUrl: "",
       oldPrice: "",
       price: price
-    });
+    };
+    promises.push(setDoc(doc(productsCol, newId), newProd));
   }
 
-  await saveStoreData();
+  await Promise.all(promises);
   alert(`Se crearon ${count} productos correctamente.`);
-  renderAdminLists();
+  e.target.reset();
 });
 
 // PERSONALIZACIÓN VISUAL
@@ -680,7 +683,7 @@ document.getElementById("form-customize").addEventListener("submit", async (e) =
   appData.config.whatsapp = document.getElementById("input-whatsapp-number").value;
   appData.config.footerInfo = document.getElementById("input-footer-info").value;
 
-  await saveStoreData();
+  await saveConfigData();
   alert("Apariencia guardada correctamente");
 });
 
@@ -753,9 +756,7 @@ document.getElementById("select-filter-admin-category").addEventListener("change
 
 // ELIMINACIONES Y EDICIÓN
 window.deleteHeaderLink = async function(id) {
-  appData.headerNav = appData.headerNav.filter(l => l.id !== id);
-  await saveStoreData();
-  renderAdminLists();
+  await deleteDoc(doc(headerNavCol, id));
 };
 
 window.editCategory = function(id) {
@@ -768,10 +769,7 @@ window.editCategory = function(id) {
 
 window.deleteCategory = async function(id) {
   if (!confirm("¿Deseas eliminar esta categoría?")) return;
-  appData.categories = appData.categories.filter(c => c.id !== id);
-  await saveStoreData();
-  populateCategorySelects();
-  renderAdminLists();
+  await deleteDoc(doc(categoriesCol, id));
 };
 
 window.editPromo = function(id) {
@@ -801,16 +799,12 @@ window.editPromo = function(id) {
 
 window.deletePromo = async function(id) {
   if (!confirm("¿Deseas eliminar esta promoción?")) return;
-  appData.promotions = appData.promotions.filter(p => p.id !== id);
-  await saveStoreData();
-  renderAdminLists();
+  await deleteDoc(doc(promotionsCol, id));
 };
 
 window.deleteProduct = async function(id) {
   if (!confirm("¿Deseas eliminar este producto?")) return;
-  appData.products = appData.products.filter(p => p.id !== id);
-  await saveStoreData();
-  renderAdminLists();
+  await deleteDoc(doc(productsCol, id));
 };
 
 window.editProduct = function(id) {
