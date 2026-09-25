@@ -440,6 +440,9 @@ function switchSubTab(btn, targetId) {
   document.querySelectorAll(".sub-tab-view").forEach(v => v.classList.add("hidden"));
   btn.classList.add("active");
   document.getElementById(targetId).classList.remove("hidden");
+  if (targetId === "sub-view-batch-prod") {
+    renderBatchInputs();
+  }
 }
 
 // LÓGICA DINÁMICA DE CAMPOS MULTIMEDIA DE PROMOCIONES
@@ -517,9 +520,9 @@ function populateCategorySelects() {
 
   const optionsHTML = (appData.categories || []).map(c => `<option value="${c.id}">${c.name}</option>`).join("");
   
-  selSingle.innerHTML = optionsHTML;
-  selBatch.innerHTML = optionsHTML;
-  selFilter.innerHTML = `<option value="todos">-- Ver Todos los Productos --</option>` + optionsHTML;
+  if (selSingle) selSingle.innerHTML = optionsHTML;
+  if (selBatch) selBatch.innerHTML = optionsHTML;
+  if (selFilter) selFilter.innerHTML = `<option value="todos">-- Ver Todos los Productos --</option>` + optionsHTML;
 }
 
 // LOGO & IDENTIDAD
@@ -633,35 +636,129 @@ document.getElementById("form-product").addEventListener("submit", async (e) => 
   alert("Producto guardado correctamente");
 });
 
-// CREACIÓN POR TANDA
+// CREACIÓN POR TANDA CON FILAS DINÁMICAS
+function renderBatchInputs() {
+  let container = document.getElementById("batch-items-container");
+  if (!container) {
+    const formBatch = document.getElementById("form-batch-product");
+    if (!formBatch) return;
+    container = document.createElement("div");
+    container.id = "batch-items-container";
+    container.style.marginTop = "15px";
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    container.style.gap = "10px";
+    
+    const submitBtn = formBatch.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      formBatch.insertBefore(container, submitBtn);
+    } else {
+      formBatch.appendChild(container);
+    }
+  }
+
+  const countInput = document.getElementById("input-batch-count");
+  const prefixInput = document.getElementById("input-batch-prefix");
+  const startNumInput = document.getElementById("input-batch-start-num");
+
+  const count = parseInt(countInput ? countInput.value : 10) || 10;
+  const prefix = prefixInput ? prefixInput.value.trim() : "PROD";
+  const startNum = parseInt(startNumInput ? startNumInput.value : 1) || 1;
+
+  container.innerHTML = "";
+
+  for (let i = 0; i < count; i++) {
+    const currentCode = prefix ? `${prefix}-${startNum + i}` : `${startNum + i}`;
+    const row = document.createElement("div");
+    row.className = "batch-item-row";
+    row.style.display = "grid";
+    row.style.gridTemplateColumns = "100px 1fr 120px 1fr 1fr";
+    row.style.gap = "8px";
+    row.style.alignItems = "center";
+    row.style.padding = "8px";
+    row.style.background = "rgba(255, 255, 255, 0.05)";
+    row.style.borderRadius = "6px";
+
+    row.innerHTML = `
+      <span style="font-weight: bold; font-size: 0.85rem; opacity:0.8;">${currentCode}</span>
+      <input type="text" class="batch-input-title nav-batch" data-row="${i}" data-field="title" placeholder="Nombre *" required style="padding:6px; border-radius:4px; border:1px solid #444; background:#1e1e1e; color:#fff;">
+      <input type="number" step="0.01" class="batch-input-price nav-batch" data-row="${i}" data-field="price" placeholder="Precio *" required style="padding:6px; border-radius:4px; border:1px solid #444; background:#1e1e1e; color:#fff;">
+      <input type="text" class="batch-input-brand nav-batch" data-row="${i}" data-field="brand" placeholder="Marca (Opcional)" style="padding:6px; border-radius:4px; border:1px solid #444; background:#1e1e1e; color:#fff;">
+      <input type="url" class="batch-input-img nav-batch" data-row="${i}" data-field="img" placeholder="URL Imagen (Opcional)" style="padding:6px; border-radius:4px; border:1px solid #444; background:#1e1e1e; color:#fff;">
+    `;
+    container.appendChild(row);
+  }
+
+  // Navegación con ENTER entre campos
+  const navInputs = Array.from(container.querySelectorAll(".nav-batch"));
+  navInputs.forEach((input, index) => {
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (index + 1 < navInputs.length) {
+          navInputs[index + 1].focus();
+        }
+      }
+    });
+  });
+}
+
+// Escuchadores para re-generar dinamismo de filas
+["input-batch-count", "input-batch-prefix", "input-batch-start-num"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener("input", renderBatchInputs);
+    el.addEventListener("change", renderBatchInputs);
+  }
+});
+
 document.getElementById("form-batch-product").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const count = parseInt(document.getElementById("input-batch-count").value);
-  const prefix = document.getElementById("input-batch-prefix").value;
-  let startNum = parseInt(document.getElementById("input-batch-start-num").value);
-  const baseName = document.getElementById("input-batch-name").value;
-  const categoryId = document.getElementById("select-batch-category").value;
-  const price = document.getElementById("input-batch-price").value;
+  const countInput = document.getElementById("input-batch-count");
+  const prefixInput = document.getElementById("input-batch-prefix");
+  const startNumInput = document.getElementById("input-batch-start-num");
+  const categorySelect = document.getElementById("select-batch-category");
 
+  const count = parseInt(countInput ? countInput.value : 10) || 10;
+  const prefix = prefixInput ? prefixInput.value.trim() : "PROD";
+  let startNum = parseInt(startNumInput ? startNumInput.value : 1) || 1;
+  const categoryId = categorySelect ? categorySelect.value : "";
+
+  const rows = document.querySelectorAll("#batch-items-container .batch-item-row");
   const promises = [];
-  for (let i = 0; i < count; i++) {
-    const code = `${prefix}-${startNum + i}`;
-    const newId = `${Date.now()}_${i}`;
-    const newProd = {
-      code: code,
-      categoryId: categoryId,
-      title: `${baseName} ${code}`,
-      desc: "",
-      imgUrl: "",
-      oldPrice: "",
-      price: price
-    };
-    promises.push(setDoc(doc(productsCol, newId), newProd));
+
+  rows.forEach((row, i) => {
+    const code = prefix ? `${prefix}-${startNum + i}` : `${startNum + i}`;
+    const titleVal = row.querySelector(".batch-input-title")?.value.trim() || "";
+    const priceVal = row.querySelector(".batch-input-price")?.value.trim() || "0";
+    const brandVal = row.querySelector(".batch-input-brand")?.value.trim() || "";
+    const imgVal = row.querySelector(".batch-input-img")?.value.trim() || "";
+
+    if (titleVal) {
+      const fullTitle = brandVal ? `${titleVal} (${brandVal})` : titleVal;
+      const newId = `${Date.now()}_${i}`;
+      const newProd = {
+        code: code,
+        categoryId: categoryId,
+        title: fullTitle,
+        desc: brandVal ? `Marca: ${brandVal}` : "",
+        imgUrl: imgVal,
+        oldPrice: "",
+        price: priceVal
+      };
+      promises.push(setDoc(doc(productsCol, newId), newProd));
+    }
+  });
+
+  if (promises.length === 0) {
+    alert("Por favor, completa al menos un nombre y precio.");
+    return;
   }
 
   await Promise.all(promises);
-  alert(`Se crearon ${count} productos correctamente.`);
+  alert(`Se crearon ${promises.length} productos correctamente.`);
   e.target.reset();
+  renderBatchInputs();
 });
 
 // PERSONALIZACIÓN VISUAL
