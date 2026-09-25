@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { 
-  getFirestore, doc, collection, onSnapshot, setDoc, deleteDoc 
+  getFirestore, doc, collection, onSnapshot, setDoc, deleteDoc, query, where 
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { 
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged 
@@ -21,7 +21,7 @@ const app = initializeApp(firebaseConfig, "NicoMotorepuestoApp");
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// REFERENCIAS A COLECCIONES INDEPENDIENTES (CERO SOBREESCRITURA)
+// REFERENCIAS A COLECCIONES INDEPENDIENTES
 const configRef = doc(db, "Nicolas_config", "storeData");
 const productsCol = collection(db, "Nicolas_products");
 const categoriesCol = collection(db, "Nicolas_categories");
@@ -50,15 +50,22 @@ let appData = {
   headerNav: [],
   promotions: [],
   categories: [],
-  products: []
+  products: [],
+  adminProducts: []
 };
 
 let cart = [];
-let currentCategoryFilter = "todos";
-let isInitialLoaded = false;
+let currentCategoryFilter = null;
+let unsubscribeProducts = null;
+let unsubscribeAdminProducts = null;
 let carouselIndexes = {};
+let searchQuery = "";
 
-// 2. ESCUCHADORES DE FIRESTORE EN TIEMPO REAL (INDIVIDUALES)
+// ==========================================
+// CARGA POR PRIORIDADES (OPTIMIZACIÓN)
+// ==========================================
+
+// PRIORIDAD 1: CONFIGURACIÓN GLOBAL, ESTILOS E IDENTIDAD
 onSnapshot(configRef, (docSnap) => {
   if (docSnap.exists()) {
     appData.config = docSnap.data();
@@ -69,45 +76,72 @@ onSnapshot(configRef, (docSnap) => {
   renderHeader();
   renderFooter();
   checkInitialLoad();
-});
+  
+  initPriorityTwo();
+}, (error) => console.error("Error en Prioridad 1:", error));
 
-onSnapshot(productsCol, (snapshot) => {
-  appData.products = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  renderProducts();
-  renderAdminProductsList();
-  checkInitialLoad();
-});
+// PRIORIDAD 2: ENCABEZADO Y PROMOCIONES/AVISOS
+let priorityTwoStarted = false;
+function initPriorityTwo() {
+  if (priorityTwoStarted) return;
+  priorityTwoStarted = true;
 
-onSnapshot(categoriesCol, (snapshot) => {
-  appData.categories = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  onSnapshot(headerNavCol, (snapshot) => {
+    appData.headerNav = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderHeader();
+  });
+
+  onSnapshot(promotionsCol, (snapshot) => {
+    appData.promotions = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderPromotions();
+    renderAdminLists();
+    
+    initPriorityThree();
+  });
+}
+
+// PRIORIDAD 3: CATEGORÍAS Y PRIMERA SECCIÓN
+let priorityThreeStarted = false;
+function initPriorityThree() {
+  if (priorityThreeStarted) return;
+  priorityThreeStarted = true;
+
+  onSnapshot(categoriesCol, (snapshot) => {
+    appData.categories = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderCategories();
+    populateCategorySelects();
+    renderAdminLists();
+
+    if (!currentCategoryFilter && appData.categories.length > 0) {
+      loadCategoryProducts(appData.categories[0].id);
+    }
+  });
+}
+
+// PRIORIDAD 4: PRODUCTOS FILTRADOS POR CATEGORÍA
+function loadCategoryProducts(catId) {
+  if (!catId) return;
+  currentCategoryFilter = catId;
+  
+  if (unsubscribeProducts) {
+    unsubscribeProducts();
+  }
+
   renderCategories();
-  populateCategorySelects();
-  renderAdminLists();
-  checkInitialLoad();
-});
 
-onSnapshot(promotionsCol, (snapshot) => {
-  appData.promotions = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  renderPromotions();
-  renderAdminLists();
-  checkInitialLoad();
-});
-
-onSnapshot(headerNavCol, (snapshot) => {
-  appData.headerNav = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  renderHeader();
-  renderAdminLists();
-  checkInitialLoad();
-});
+  const q = query(productsCol, where("categoryId", "==", catId));
+  
+  unsubscribeProducts = onSnapshot(q, (snapshot) => {
+    appData.products = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderProducts();
+  });
+}
 
 function checkInitialLoad() {
-  if (!isInitialLoaded) {
-    const loader = document.getElementById("initial-loader");
-    const mainApp = document.getElementById("main-app");
-    if (loader) loader.classList.add("hidden");
-    if (mainApp) mainApp.classList.remove("hidden");
-    isInitialLoaded = true;
-  }
+  const loader = document.getElementById("initial-loader");
+  const mainApp = document.getElementById("main-app");
+  if (loader) loader.classList.add("hidden");
+  if (mainApp) mainApp.classList.remove("hidden");
 }
 
 // APLICACIÓN DINÁMICA DE ESTILOS
@@ -244,7 +278,7 @@ window.moveCarousel = function(promoId, direction) {
 
 function renderCategories() {
   const scrollContainer = document.getElementById("categories-scroll");
-  scrollContainer.innerHTML = `<button class="cat-btn ${currentCategoryFilter === 'todos' ? 'active' : ''}" data-category="todos">Todos</button>`;
+  scrollContainer.innerHTML = "";
 
   (appData.categories || []).forEach(cat => {
     const btn = document.createElement("button");
@@ -252,36 +286,48 @@ function renderCategories() {
     btn.dataset.category = cat.id;
     btn.textContent = cat.name;
     btn.addEventListener("click", () => {
-      currentCategoryFilter = cat.id;
-      renderCategories();
-      renderProducts();
+      loadCategoryProducts(cat.id);
     });
     scrollContainer.appendChild(btn);
   });
-  
-  scrollContainer.querySelector('[data-category="todos"]').addEventListener("click", () => {
-    currentCategoryFilter = "todos";
-    renderCategories();
+}
+
+// BUSCADOR POR CÓDIGO O NOMBRE
+const searchInput = document.getElementById("input-search-product");
+if (searchInput) {
+  searchInput.addEventListener("input", (e) => {
+    searchQuery = e.target.value.toLowerCase().trim();
     renderProducts();
   });
 }
 
+// RENDERIZADO DE PRODUCTOS EN LA CATEGORÍA CON EDICIÓN Y ELIMINACIÓN INLINE DIRECTA
 function renderProducts() {
   const grid = document.getElementById("products-grid");
   grid.innerHTML = "";
 
-  const prods = (appData.products || []).filter(p => {
-    return currentCategoryFilter === "todos" || p.categoryId === currentCategoryFilter;
-  });
+  let prods = appData.products || [];
+
+  if (searchQuery) {
+    prods = prods.filter(p => 
+      (p.code && p.code.toLowerCase().includes(searchQuery)) || 
+      (p.title && p.title.toLowerCase().includes(searchQuery))
+    );
+  }
 
   if (prods.length === 0) {
-    grid.innerHTML = `<p style="grid-column: 1/-1; text-align:center; opacity:0.6; padding:30px;">No hay productos disponibles en esta sección.</p>`;
+    grid.innerHTML = `<p style="grid-column: 1/-1; text-align:center; opacity:0.6; padding:30px;">No se encontraron productos en esta sección.</p>`;
     return;
   }
+
+  const isAdmin = !!auth.currentUser;
 
   prods.forEach(p => {
     const card = document.createElement("div");
     card.className = "product-card";
+    card.style.display = "flex";
+    card.style.flexDirection = "column";
+
     card.innerHTML = `
       <div>
         <div class="prod-img-wrapper" onclick="openZoomImage('${p.imgUrl || 'https://via.placeholder.com/150'}')">
@@ -296,22 +342,89 @@ function renderProducts() {
           ${p.oldPrice ? `<span class="old-price">$${p.oldPrice}</span>` : ""}
           <span class="current-price">$${p.price}</span>
         </div>
-        <button class="add-cart-btn" onclick="addToCart('${p.id}')">
-          <i class="fa-solid fa-cart-plus"></i> Agregar
-        </button>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <button class="add-cart-btn" style="flex:1;" onclick="addToCart('${p.id}')">
+            <i class="fa-solid fa-cart-plus"></i> Agregar
+          </button>
+          ${isAdmin ? `
+            <button onclick="toggleCardEditForm('${p.id}')" title="Editar producto" style="padding:8px 10px; background:#333; color:#00f3ff; border:1px solid #00f3ff; border-radius:6px; cursor:pointer; font-weight:bold;"><i class="fa-solid fa-pen"></i></button>
+            <button onclick="deleteProduct('${p.id}')" title="Eliminar producto" style="padding:8px 10px; background:#333; color:#ff4d4d; border:1px solid #ff4d4d; border-radius:6px; cursor:pointer; font-weight:bold;"><i class="fa-solid fa-trash"></i></button>
+          ` : ''}
+        </div>
+      </div>
+      
+      <!-- DESPLEGABLE DE EDICIÓN RÁPIDA -->
+      <div id="card-edit-box-${p.id}" class="hidden" style="margin-top:12px; padding:10px; background:rgba(0,0,0,0.5); border:1px solid var(--accent-color, #00f3ff); border-radius:8px; text-align:left;">
+        <form onsubmit="saveCardInlineProduct(event, '${p.id}')" style="display:flex; flex-direction:column; gap:8px;">
+          <div>
+            <label style="font-size:0.7rem; opacity:0.8; display:block;">Código</label>
+            <input type="text" id="card-edit-code-${p.id}" value="${p.code}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+          </div>
+          <div>
+            <label style="font-size:0.7rem; opacity:0.8; display:block;">Título</label>
+            <input type="text" id="card-edit-title-${p.id}" value="${p.title}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Precio</label>
+              <input type="number" step="0.01" id="card-edit-price-${p.id}" value="${p.price}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Precio Ant.</label>
+              <input type="number" step="0.01" id="card-edit-oldprice-${p.id}" value="${p.oldPrice || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+          </div>
+          <div>
+            <label style="font-size:0.7rem; opacity:0.8; display:block;">URL Imagen</label>
+            <input type="url" id="card-edit-img-${p.id}" value="${p.imgUrl || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+          </div>
+          <div>
+            <label style="font-size:0.7rem; opacity:0.8; display:block;">Descripción</label>
+            <input type="text" id="card-edit-desc-${p.id}" value="${p.desc || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+          </div>
+          <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:4px;">
+            <button type="button" onclick="toggleCardEditForm('${p.id}')" style="padding:4px 8px; background:#444; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Cancelar</button>
+            <button type="submit" style="padding:4px 10px; background:var(--accent-color, #00f3ff); color:#000; font-weight:bold; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Guardar</button>
+          </div>
+        </form>
       </div>
     `;
     grid.appendChild(card);
   });
 }
 
+// DESPLEGAR U OCULTAR EDICIÓN EN LA TARJETA
+window.toggleCardEditForm = function(id) {
+  const box = document.getElementById(`card-edit-box-${id}`);
+  if (box) {
+    box.classList.toggle("hidden");
+  }
+};
+
+// GUARDAR CAMBIOS DIRECTAMENTE DESDE LA TARJETA
+window.saveCardInlineProduct = async function(e, id) {
+  e.preventDefault();
+
+  const updatedProd = {
+    code: document.getElementById(`card-edit-code-${id}`).value,
+    categoryId: currentCategoryFilter,
+    title: document.getElementById(`card-edit-title-${id}`).value,
+    price: document.getElementById(`card-edit-price-${id}`).value,
+    oldPrice: document.getElementById(`card-edit-oldprice-${id}`).value,
+    imgUrl: document.getElementById(`card-edit-img-${id}`).value,
+    desc: document.getElementById(`card-edit-desc-${id}`).value
+  };
+
+  await setDoc(doc(productsCol, id), updatedProd);
+};
+
 function renderFooter() {
   document.getElementById("footer-content").textContent = appData.config.footerInfo || "";
 }
 
-// 3. CARRITO DE COMPRAS Y PEDIDO POR WHATSAPP
+// 3. CARRITO DE COMPRAS PERSISTENTE
 window.addToCart = function(prodId) {
-  const product = appData.products.find(p => p.id === prodId);
+  const product = appData.products.find(p => p.id === prodId) || appData.adminProducts.find(p => p.id === prodId);
   if (!product) return;
   cart.push(product);
   updateCartUI();
@@ -355,7 +468,7 @@ document.getElementById("btn-send-whatsapp").addEventListener("click", () => {
   }
 
   let total = 0;
-  let msg = `*Hola,Deseo realizar esta compra en ${appData.config.brandName || 'Nico Motorepuesto'}*\n\n`;
+  let msg = `*Hola, Deseo realizar esta compra en ${appData.config.brandName || 'Nico Motorepuesto'}*\n\n`;
   msg += `*Detalle del pedido:*\n`;
 
   cart.forEach((item, i) => {
@@ -397,6 +510,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
   try {
     await signInWithEmailAndPassword(auth, email, pass);
     loginModal.classList.add("hidden");
+    renderProducts();
     openAdminPanel();
   } catch (err) {
     errText.textContent = "Credenciales inválidas";
@@ -407,9 +521,11 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 document.getElementById("admin-logout-btn").addEventListener("click", () => {
   signOut(auth);
   adminModal.classList.add("hidden");
+  renderProducts();
 });
 
 onAuthStateChanged(auth, (user) => {
+  renderProducts();
   if (!user && !adminModal.classList.contains("hidden")) {
     adminModal.classList.add("hidden");
   }
@@ -442,10 +558,12 @@ function switchSubTab(btn, targetId) {
   document.getElementById(targetId).classList.remove("hidden");
   if (targetId === "sub-view-batch-prod") {
     renderBatchInputs();
+  } else if (targetId === "sub-view-list-prod") {
+    renderAdminProductsList();
   }
 }
 
-// LÓGICA DINÁMICA DE CAMPOS MULTIMEDIA DE PROMOCIONES
+// MULTIMEDIA PROMOCIONES
 const mediaTypeSelect = document.getElementById("select-promo-media-type");
 const singleGroup = document.getElementById("media-input-single");
 const carouselGroup = document.getElementById("media-input-carousel");
@@ -522,7 +640,7 @@ function populateCategorySelects() {
   
   if (selSingle) selSingle.innerHTML = optionsHTML;
   if (selBatch) selBatch.innerHTML = optionsHTML;
-  if (selFilter) selFilter.innerHTML = `<option value="todos">-- Ver Todos los Productos --</option>` + optionsHTML;
+  if (selFilter) selFilter.innerHTML = optionsHTML;
 }
 
 // LOGO & IDENTIDAD
@@ -636,7 +754,7 @@ document.getElementById("form-product").addEventListener("submit", async (e) => 
   alert("Producto guardado correctamente");
 });
 
-// CREACIÓN POR TANDA CON FILAS DINÁMICAS
+// CREACIÓN POR TANDA
 function renderBatchInputs() {
   let container = document.getElementById("batch-items-container");
   if (!container) {
@@ -689,7 +807,6 @@ function renderBatchInputs() {
     container.appendChild(row);
   }
 
-  // Navegación con ENTER entre campos
   const navInputs = Array.from(container.querySelectorAll(".nav-batch"));
   navInputs.forEach((input, index) => {
     input.addEventListener("keydown", (e) => {
@@ -703,7 +820,6 @@ function renderBatchInputs() {
   });
 }
 
-// Escuchadores para re-generar dinamismo de filas
 ["input-batch-count", "input-batch-prefix", "input-batch-start-num"].forEach(id => {
   const el = document.getElementById(id);
   if (el) {
@@ -714,12 +830,10 @@ function renderBatchInputs() {
 
 document.getElementById("form-batch-product").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const countInput = document.getElementById("input-batch-count");
   const prefixInput = document.getElementById("input-batch-prefix");
   const startNumInput = document.getElementById("input-batch-start-num");
   const categorySelect = document.getElementById("select-batch-category");
 
-  const count = parseInt(countInput ? countInput.value : 10) || 10;
   const prefix = prefixInput ? prefixInput.value.trim() : "PROD";
   let startNum = parseInt(startNumInput ? startNumInput.value : 1) || 1;
   const categoryId = categorySelect ? categorySelect.value : "";
@@ -730,11 +844,11 @@ document.getElementById("form-batch-product").addEventListener("submit", async (
   rows.forEach((row, i) => {
     const code = prefix ? `${prefix}-${startNum + i}` : `${startNum + i}`;
     const titleVal = row.querySelector(".batch-input-title")?.value.trim() || "";
-    const priceVal = row.querySelector(".batch-input-price")?.value.trim() || "0";
+    const priceVal = row.querySelector(".batch-input-price")?.value.trim() || "";
     const brandVal = row.querySelector(".batch-input-brand")?.value.trim() || "";
     const imgVal = row.querySelector(".batch-input-img")?.value.trim() || "";
 
-    if (titleVal) {
+    if (titleVal && priceVal) {
       const fullTitle = brandVal ? `${titleVal} (${brandVal})` : titleVal;
       const newId = `${Date.now()}_${i}`;
       const newProd = {
@@ -751,7 +865,7 @@ document.getElementById("form-batch-product").addEventListener("submit", async (
   });
 
   if (promises.length === 0) {
-    alert("Por favor, completa al menos un nombre y precio.");
+    alert("Por favor, completa el nombre y precio en al menos una fila.");
     return;
   }
 
@@ -786,7 +900,6 @@ document.getElementById("form-customize").addEventListener("submit", async (e) =
 
 // RENDERIZADO DE TABLAS ADMIN
 function renderAdminLists() {
-  // Enlaces
   const linksDiv = document.getElementById("admin-links-list");
   linksDiv.innerHTML = "";
   (appData.headerNav || []).forEach(l => {
@@ -799,7 +912,6 @@ function renderAdminLists() {
       </div>`;
   });
 
-  // Promociones / Avisos en Admin
   const promosDiv = document.getElementById("admin-promos-list");
   promosDiv.innerHTML = "";
   (appData.promotions || []).forEach(p => {
@@ -813,7 +925,6 @@ function renderAdminLists() {
       </div>`;
   });
 
-  // Categorías
   const catDiv = document.getElementById("admin-categories-list");
   catDiv.innerHTML = "";
   (appData.categories || []).forEach(c => {
@@ -827,31 +938,47 @@ function renderAdminLists() {
       </div>`;
   });
 
-  // Productos
   renderAdminProductsList();
 }
 
 function renderAdminProductsList() {
-  const filterCat = document.getElementById("select-filter-admin-category").value;
-  const prodDiv = document.getElementById("admin-products-list");
-  prodDiv.innerHTML = "";
+  const filterCatSelect = document.getElementById("select-filter-admin-category");
+  if (!filterCatSelect) return;
 
-  const list = (appData.products || []).filter(p => filterCat === "todos" || p.categoryId === filterCat);
-  list.forEach(p => {
-    prodDiv.innerHTML += `
-      <div class="admin-item-row">
-        <span><strong>[${p.code}]</strong> ${p.title} - $${p.price}</span>
-        <div class="item-actions">
-          <button class="edit-btn" onclick="editProduct('${p.id}')">Editar</button>
-          <button class="delete-btn" onclick="deleteProduct('${p.id}')">Eliminar</button>
+  const filterCat = filterCatSelect.value;
+  if (!filterCat) return;
+
+  if (unsubscribeAdminProducts) {
+    unsubscribeAdminProducts();
+  }
+
+  const q = query(productsCol, where("categoryId", "==", filterCat));
+  unsubscribeAdminProducts = onSnapshot(q, (snapshot) => {
+    appData.adminProducts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    const prodDiv = document.getElementById("admin-products-list");
+    prodDiv.innerHTML = "";
+
+    appData.adminProducts.forEach(p => {
+      const container = document.createElement("div");
+      container.style.display = "flex";
+      container.style.flexDirection = "column";
+      container.style.marginBottom = "8px";
+
+      container.innerHTML = `
+        <div class="admin-item-row">
+          <span><strong>[${p.code}]</strong> ${p.title} - $${p.price}</span>
+          <div class="item-actions">
+            <button class="delete-btn" onclick="deleteProduct('${p.id}')">Eliminar</button>
+          </div>
         </div>
-      </div>`;
+      `;
+      prodDiv.appendChild(container);
+    });
   });
 }
 
-document.getElementById("select-filter-admin-category").addEventListener("change", renderAdminProductsList);
-
-// ELIMINACIONES Y EDICIÓN
+// ELIMINACIONES Y EDICIÓN DE ENLACES / PROMOS / CATEGORÍAS
 window.deleteHeaderLink = async function(id) {
   await deleteDoc(doc(headerNavCol, id));
 };
@@ -902,23 +1029,6 @@ window.deletePromo = async function(id) {
 window.deleteProduct = async function(id) {
   if (!confirm("¿Deseas eliminar este producto?")) return;
   await deleteDoc(doc(productsCol, id));
-};
-
-window.editProduct = function(id) {
-  const p = appData.products.find(item => item.id === id);
-  if (!p) return;
-
-  switchSubTab(document.getElementById("sub-btn-single-prod"), "sub-view-single-prod");
-
-  document.getElementById("input-prod-id").value = p.id;
-  document.getElementById("input-prod-code").value = p.code;
-  document.getElementById("select-prod-category").value = p.categoryId;
-  document.getElementById("input-prod-title").value = p.title;
-  document.getElementById("input-prod-desc").value = p.desc || "";
-  document.getElementById("input-prod-img").value = p.imgUrl || "";
-  document.getElementById("input-prod-old-price").value = p.oldPrice || "";
-  document.getElementById("input-prod-price").value = p.price;
-  document.getElementById("cancel-prod-edit").classList.remove("hidden");
 };
 
 document.getElementById("cancel-prod-edit").addEventListener("click", () => {
