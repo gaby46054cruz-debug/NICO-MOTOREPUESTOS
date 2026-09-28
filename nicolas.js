@@ -384,6 +384,10 @@ function renderProducts() {
     grid.style.gap = "8px";
 
     prods.forEach(p => {
+      const categoryOptions = (appData.categories || []).map(cat => 
+        `<option value="${cat.id}" ${p.categoryId === cat.id ? 'selected' : ''}>${cat.name}</option>`
+      ).join('');
+
       const row = document.createElement("div");
       row.className = "product-admin-row";
       row.style.background = "var(--card-bg, #1e1e1e)";
@@ -416,6 +420,12 @@ function renderProducts() {
             <div>
               <label style="font-size:0.7rem; opacity:0.8; display:block;">Código</label>
               <input type="text" id="card-edit-code-${p.id}" value="${p.code || ''}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Categoría</label>
+              <select id="card-edit-category-${p.id}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+                ${categoryOptions}
+              </select>
             </div>
             <div>
               <label style="font-size:0.7rem; opacity:0.8; display:block;">Título</label>
@@ -454,6 +464,10 @@ function renderProducts() {
     grid.style.gap = "";
 
     prods.forEach(p => {
+      const categoryOptions = (appData.categories || []).map(cat => 
+        `<option value="${cat.id}" ${p.categoryId === cat.id ? 'selected' : ''}>${cat.name}</option>`
+      ).join('');
+
       const card = document.createElement("div");
       card.className = "product-card";
       card.style.display = "flex";
@@ -490,6 +504,12 @@ function renderProducts() {
             <div>
               <label style="font-size:0.7rem; opacity:0.8; display:block;">Código</label>
               <input type="text" id="card-edit-code-${p.id}" value="${p.code || ''}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Categoría</label>
+              <select id="card-edit-category-${p.id}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+                ${categoryOptions}
+              </select>
             </div>
             <div>
               <label style="font-size:0.7rem; opacity:0.8; display:block;">Título</label>
@@ -537,11 +557,12 @@ window.toggleCardEditForm = function(id) {
 window.saveCardInlineProduct = async function(e, id) {
   e.preventDefault();
 
-  const currentProd = appData.allProductsForSearch.find(p => p.id === id) || appData.products.find(p => p.id === id);
+  const categorySelect = document.getElementById(`card-edit-category-${id}`);
+  const selectedCategory = categorySelect ? categorySelect.value : currentCategoryFilter;
 
   const updatedProd = {
     code: document.getElementById(`card-edit-code-${id}`).value,
-    categoryId: currentProd ? currentProd.categoryId : currentCategoryFilter,
+    categoryId: selectedCategory,
     title: document.getElementById(`card-edit-title-${id}`).value,
     price: document.getElementById(`card-edit-price-${id}`).value,
     oldPrice: document.getElementById(`card-edit-oldprice-${id}`).value,
