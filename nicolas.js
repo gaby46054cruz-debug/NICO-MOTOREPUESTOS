@@ -51,12 +51,14 @@ let appData = {
   promotions: [],
   categories: [],
   products: [],
+  allProductsForSearch: [], // Almacén para búsqueda global
   adminProducts: []
 };
 
 let cart = [];
 let currentCategoryFilter = null;
 let unsubscribeProducts = null;
+let unsubscribeAllSearch = null;
 let unsubscribeAdminProducts = null;
 let carouselIndexes = {};
 let searchQuery = "";
@@ -106,6 +108,14 @@ function initPriorityThree() {
   if (priorityThreeStarted) return;
   priorityThreeStarted = true;
 
+  // Cargar TODOS los productos en segundo plano para búsqueda global instantánea
+  unsubscribeAllSearch = onSnapshot(productsCol, (snapshot) => {
+    appData.allProductsForSearch = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (searchQuery) {
+      renderProducts();
+    }
+  });
+
   onSnapshot(categoriesCol, (snapshot) => {
     appData.categories = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     renderCategories();
@@ -133,7 +143,9 @@ function loadCategoryProducts(catId) {
   
   unsubscribeProducts = onSnapshot(q, (snapshot) => {
     appData.products = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderProducts();
+    if (!searchQuery) {
+      renderProducts();
+    }
   });
 }
 
@@ -292,108 +304,228 @@ function renderCategories() {
   });
 }
 
-// BUSCADOR POR CÓDIGO O NOMBRE
-const searchInput = document.getElementById("input-search-product");
-if (searchInput) {
-  searchInput.addEventListener("input", (e) => {
-    searchQuery = e.target.value.toLowerCase().trim();
-    renderProducts();
-  });
+// INYECCIÓN/ASEGURAMIENTO DEL BUSCADOR SUPERIOR
+function ensureTopSearchBar() {
+  let searchInput = document.getElementById("input-search-product");
+  if (!searchInput) {
+    const mainContainer = document.querySelector("#main-app main") || document.getElementById("main-app") || document.body;
+    const categoriesSection = document.getElementById("categories-scroll")?.parentElement || document.getElementById("products-grid");
+    
+    const barWrapper = document.createElement("div");
+    barWrapper.id = "top-search-wrapper";
+    barWrapper.style.margin = "15px auto";
+    barWrapper.style.maxWidth = "600px";
+    barWrapper.style.padding = "0 15px";
+    
+    barWrapper.innerHTML = `
+      <div style="position:relative; width:100%;">
+        <input type="text" id="input-search-product" placeholder="Buscar producto por nombre o código..." style="width:100%; padding:10px 15px 10px 35px; border-radius:20px; border:1px solid var(--accent-color, #00f3ff); background:#121212; color:#fff; font-size:0.95rem; outline:none;">
+        <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--accent-color, #00f3ff); opacity:0.7;"></i>
+      </div>
+    `;
+
+    if (categoriesSection && categoriesSection.parentElement) {
+      categoriesSection.parentElement.insertBefore(barWrapper, categoriesSection);
+    } else {
+      mainContainer.prepend(barWrapper);
+    }
+    
+    searchInput = document.getElementById("input-search-product");
+  }
+
+  if (searchInput && !searchInput.dataset.listenerAttached) {
+    searchInput.dataset.listenerAttached = "true";
+    searchInput.addEventListener("input", (e) => {
+      searchQuery = e.target.value.toLowerCase().trim();
+      renderProducts();
+    });
+  }
 }
 
-// RENDERIZADO DE PRODUCTOS EN LA CATEGORÍA CON EDICIÓN Y ELIMINACIÓN INLINE DIRECTA
+document.addEventListener("DOMContentLoaded", ensureTopSearchBar);
+setTimeout(ensureTopSearchBar, 500);
+
+// RENDERIZADO DE PRODUCTOS (CON BÚSQUEDA GLOBAL Y ORDEN ALFABÉTICO)
 function renderProducts() {
+  ensureTopSearchBar();
   const grid = document.getElementById("products-grid");
+  if (!grid) return;
+
   grid.innerHTML = "";
 
-  let prods = appData.products || [];
+  const isAdmin = !!auth.currentUser;
+  let prods = [];
 
+  // BÚSQUEDA GLOBAL: Si hay texto en el buscador, busca en TODOS los productos.
+  // De lo contrario, muestra solo los productos de la categoría seleccionada.
   if (searchQuery) {
+    prods = appData.allProductsForSearch ? [...appData.allProductsForSearch] : [];
     prods = prods.filter(p => 
       (p.code && p.code.toLowerCase().includes(searchQuery)) || 
-      (p.title && p.title.toLowerCase().includes(searchQuery))
+      (p.title && p.title.toLowerCase().includes(searchQuery)) ||
+      (p.desc && p.desc.toLowerCase().includes(searchQuery))
     );
+    
+    // ORDENAR SIEMPRE ALFABÉTICAMENTE AL BUSCAR
+    prods.sort((a, b) => (a.title || "").localeCompare(b.title || "", 'es', { sensitivity: 'base' }));
+  } else {
+    prods = appData.products ? [...appData.products] : [];
   }
 
   if (prods.length === 0) {
-    grid.innerHTML = `<p style="grid-column: 1/-1; text-align:center; opacity:0.6; padding:30px;">No se encontraron productos en esta sección.</p>`;
+    grid.innerHTML = `<p style="grid-column: 1/-1; text-align:center; opacity:0.6; padding:30px;">No se encontraron productos.</p>`;
     return;
   }
 
-  const isAdmin = !!auth.currentUser;
+  // CASO 1: ADMIN BUSCANDO -> MOSTRAR EN TIRILLAS
+  if (isAdmin && searchQuery) {
+    grid.style.display = "flex";
+    grid.style.flexDirection = "column";
+    grid.style.gap = "8px";
 
-  prods.forEach(p => {
-    const card = document.createElement("div");
-    card.className = "product-card";
-    card.style.display = "flex";
-    card.style.flexDirection = "column";
+    prods.forEach(p => {
+      const row = document.createElement("div");
+      row.className = "product-admin-row";
+      row.style.background = "var(--card-bg, #1e1e1e)";
+      row.style.border = "1px solid #333";
+      row.style.borderRadius = "8px";
+      row.style.padding = "10px 14px";
+      row.style.display = "flex";
+      row.style.flexDirection = "column";
 
-    card.innerHTML = `
-      <div>
-        <div class="prod-img-wrapper" onclick="openZoomImage('${p.imgUrl || 'https://via.placeholder.com/150'}')">
-          <img src="${p.imgUrl || 'https://via.placeholder.com/150'}" alt="${p.title}">
-        </div>
-        <div class="prod-code">Cód: ${p.code}</div>
-        <h3 class="prod-title">${p.title}</h3>
-        <p class="prod-desc">${p.desc || ''}</p>
-      </div>
-      <div>
-        <div class="price-box">
-          ${p.oldPrice ? `<span class="old-price">$${p.oldPrice}</span>` : ""}
-          <span class="current-price">$${p.price}</span>
-        </div>
-        <div style="display:flex; gap:6px; margin-top:8px;">
-          <button class="add-cart-btn" style="flex:1;" onclick="addToCart('${p.id}')">
-            <i class="fa-solid fa-cart-plus"></i> Agregar
-          </button>
-          ${isAdmin ? `
-            <button onclick="toggleCardEditForm('${p.id}')" title="Editar producto" style="padding:8px 10px; background:#333; color:#00f3ff; border:1px solid #00f3ff; border-radius:6px; cursor:pointer; font-weight:bold;"><i class="fa-solid fa-pen"></i></button>
-            <button onclick="deleteProduct('${p.id}')" title="Eliminar producto" style="padding:8px 10px; background:#333; color:#ff4d4d; border:1px solid #ff4d4d; border-radius:6px; cursor:pointer; font-weight:bold;"><i class="fa-solid fa-trash"></i></button>
-          ` : ''}
-        </div>
-      </div>
-      
-      <!-- DESPLEGABLE DE EDICIÓN RÁPIDA -->
-      <div id="card-edit-box-${p.id}" class="hidden" style="margin-top:12px; padding:10px; background:rgba(0,0,0,0.5); border:1px solid var(--accent-color, #00f3ff); border-radius:8px; text-align:left;">
-        <form onsubmit="saveCardInlineProduct(event, '${p.id}')" style="display:flex; flex-direction:column; gap:8px;">
-          <div>
-            <label style="font-size:0.7rem; opacity:0.8; display:block;">Código</label>
-            <input type="text" id="card-edit-code-${p.id}" value="${p.code}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+      row.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:200px;">
+            <img src="${p.imgUrl || 'https://via.placeholder.com/40'}" style="width:40px; height:40px; object-fit:cover; border-radius:4px; cursor:pointer;" onclick="openZoomImage('${p.imgUrl || 'https://via.placeholder.com/150'}')">
+            <div>
+              <strong style="color:var(--text-color, #fff); font-size:0.95rem;">${p.title}</strong>
+              <div style="font-size:0.8rem; opacity:0.75;">Cód: ${p.code || 'N/A'} ${p.desc ? ' | ' + p.desc : ''}</div>
+            </div>
           </div>
-          <div>
-            <label style="font-size:0.7rem; opacity:0.8; display:block;">Título</label>
-            <input type="text" id="card-edit-title-${p.id}" value="${p.title}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+          <div style="display:flex; align-items:center; gap:15px;">
+            <span style="font-weight:bold; color:var(--accent-color, #00f3ff); font-size:1.05rem;">$${p.price}</span>
+            <div style="display:flex; gap:6px;">
+              <button onclick="toggleCardEditForm('${p.id}')" title="Editar producto" style="padding:6px 12px; background:#333; color:#00f3ff; border:1px solid #00f3ff; border-radius:5px; cursor:pointer; font-weight:bold; font-size:0.85rem;"><i class="fa-solid fa-pen"></i></button>
+              <button onclick="deleteProduct('${p.id}')" title="Eliminar producto" style="padding:6px 10px; background:#333; color:#ff4d4d; border:1px solid #ff4d4d; border-radius:5px; cursor:pointer; font-weight:bold; font-size:0.85rem;"><i class="fa-solid fa-trash"></i></button>
+            </div>
           </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+        </div>
+
+        <div id="card-edit-box-${p.id}" class="hidden" style="margin-top:10px; padding:12px; background:rgba(0,0,0,0.6); border:1px solid var(--accent-color, #00f3ff); border-radius:6px;">
+          <form onsubmit="saveCardInlineProduct(event, '${p.id}')" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; align-items:end;">
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Código</label>
+              <input type="text" id="card-edit-code-${p.id}" value="${p.code || ''}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Título</label>
+              <input type="text" id="card-edit-title-${p.id}" value="${p.title || ''}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
             <div>
               <label style="font-size:0.7rem; opacity:0.8; display:block;">Precio</label>
-              <input type="number" step="0.01" id="card-edit-price-${p.id}" value="${p.price}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+              <input type="number" step="0.01" id="card-edit-price-${p.id}" value="${p.price || ''}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
             </div>
             <div>
               <label style="font-size:0.7rem; opacity:0.8; display:block;">Precio Ant.</label>
               <input type="number" step="0.01" id="card-edit-oldprice-${p.id}" value="${p.oldPrice || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
             </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">URL Imagen</label>
+              <input type="url" id="card-edit-img-${p.id}" value="${p.imgUrl || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Descripción</label>
+              <input type="text" id="card-edit-desc-${p.id}" value="${p.desc || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button type="button" onclick="toggleCardEditForm('${p.id}')" style="flex:1; padding:6px; background:#444; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Cancelar</button>
+              <button type="submit" style="flex:1; padding:6px; background:var(--accent-color, #00f3ff); color:#000; font-weight:bold; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Guardar</button>
+            </div>
+          </form>
+        </div>
+      `;
+      grid.appendChild(row);
+    });
+
+  } else {
+    // CASO 2: VISTA NORMAL (PÚBLICO O ADMIN SIN BUSCAR) -> MOSTRAR EN CUADRITOS (GRID ORIGINAL)
+    grid.style.display = "grid";
+    grid.style.flexDirection = "";
+    grid.style.gap = "";
+
+    prods.forEach(p => {
+      const card = document.createElement("div");
+      card.className = "product-card";
+      card.style.display = "flex";
+      card.style.flexDirection = "column";
+
+      card.innerHTML = `
+        <div>
+          <div class="prod-img-wrapper" onclick="openZoomImage('${p.imgUrl || 'https://via.placeholder.com/150'}')">
+            <img src="${p.imgUrl || 'https://via.placeholder.com/150'}" alt="${p.title}">
           </div>
-          <div>
-            <label style="font-size:0.7rem; opacity:0.8; display:block;">URL Imagen</label>
-            <input type="url" id="card-edit-img-${p.id}" value="${p.imgUrl || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+          <div class="prod-code">Cód: ${p.code}</div>
+          <h3 class="prod-title">${p.title}</h3>
+          <p class="prod-desc">${p.desc || ''}</p>
+        </div>
+        <div>
+          <div class="price-box">
+            ${p.oldPrice ? `<span class="old-price">$${p.oldPrice}</span>` : ""}
+            <span class="current-price">$${p.price}</span>
           </div>
-          <div>
-            <label style="font-size:0.7rem; opacity:0.8; display:block;">Descripción</label>
-            <input type="text" id="card-edit-desc-${p.id}" value="${p.desc || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <button class="add-cart-btn" style="flex:1;" onclick="addToCart('${p.id}')">
+              <i class="fa-solid fa-cart-plus"></i> Agregar
+            </button>
+            ${isAdmin ? `
+              <button onclick="toggleCardEditForm('${p.id}')" title="Editar producto" style="padding:8px 10px; background:#333; color:#00f3ff; border:1px solid #00f3ff; border-radius:6px; cursor:pointer; font-weight:bold;"><i class="fa-solid fa-pen"></i></button>
+              <button onclick="deleteProduct('${p.id}')" title="Eliminar producto" style="padding:8px 10px; background:#333; color:#ff4d4d; border:1px solid #ff4d4d; border-radius:6px; cursor:pointer; font-weight:bold;"><i class="fa-solid fa-trash"></i></button>
+            ` : ''}
           </div>
-          <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:4px;">
-            <button type="button" onclick="toggleCardEditForm('${p.id}')" style="padding:4px 8px; background:#444; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Cancelar</button>
-            <button type="submit" style="padding:4px 10px; background:var(--accent-color, #00f3ff); color:#000; font-weight:bold; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Guardar</button>
-          </div>
-        </form>
-      </div>
-    `;
-    grid.appendChild(card);
-  });
+        </div>
+        
+        <!-- EDICIÓN DESPLEGABLE DENTRO DEL CUADRITO CUANDO ES ADMIN -->
+        <div id="card-edit-box-${p.id}" class="hidden" style="margin-top:12px; padding:10px; background:rgba(0,0,0,0.5); border:1px solid var(--accent-color, #00f3ff); border-radius:8px; text-align:left;">
+          <form onsubmit="saveCardInlineProduct(event, '${p.id}')" style="display:flex; flex-direction:column; gap:8px;">
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Código</label>
+              <input type="text" id="card-edit-code-${p.id}" value="${p.code || ''}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Título</label>
+              <input type="text" id="card-edit-title-${p.id}" value="${p.title || ''}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+              <div>
+                <label style="font-size:0.7rem; opacity:0.8; display:block;">Precio</label>
+                <input type="number" step="0.01" id="card-edit-price-${p.id}" value="${p.price || ''}" required style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+              </div>
+              <div>
+                <label style="font-size:0.7rem; opacity:0.8; display:block;">Precio Ant.</label>
+                <input type="number" step="0.01" id="card-edit-oldprice-${p.id}" value="${p.oldPrice || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+              </div>
+            </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">URL Imagen</label>
+              <input type="url" id="card-edit-img-${p.id}" value="${p.imgUrl || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.7rem; opacity:0.8; display:block;">Descripción</label>
+              <input type="text" id="card-edit-desc-${p.id}" value="${p.desc || ''}" style="width:100%; padding:5px; background:#121212; border:1px solid #444; color:#fff; border-radius:4px; font-size:0.85rem;">
+            </div>
+            <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:4px;">
+              <button type="button" onclick="toggleCardEditForm('${p.id}')" style="padding:4px 8px; background:#444; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Cancelar</button>
+              <button type="submit" style="padding:4px 10px; background:var(--accent-color, #00f3ff); color:#000; font-weight:bold; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Guardar</button>
+            </div>
+          </form>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  }
 }
 
-// DESPLEGAR U OCULTAR EDICIÓN EN LA TARJETA
+// DESPLEGAR U OCULTAR EDICIÓN EN LA TARJETA O TIRILLA
 window.toggleCardEditForm = function(id) {
   const box = document.getElementById(`card-edit-box-${id}`);
   if (box) {
@@ -401,13 +533,15 @@ window.toggleCardEditForm = function(id) {
   }
 };
 
-// GUARDAR CAMBIOS DIRECTAMENTE DESDE LA TARJETA
+// GUARDAR CAMBIOS DIRECTAMENTE
 window.saveCardInlineProduct = async function(e, id) {
   e.preventDefault();
 
+  const currentProd = appData.allProductsForSearch.find(p => p.id === id) || appData.products.find(p => p.id === id);
+
   const updatedProd = {
     code: document.getElementById(`card-edit-code-${id}`).value,
-    categoryId: currentCategoryFilter,
+    categoryId: currentProd ? currentProd.categoryId : currentCategoryFilter,
     title: document.getElementById(`card-edit-title-${id}`).value,
     price: document.getElementById(`card-edit-price-${id}`).value,
     oldPrice: document.getElementById(`card-edit-oldprice-${id}`).value,
@@ -424,7 +558,9 @@ function renderFooter() {
 
 // 3. CARRITO DE COMPRAS PERSISTENTE
 window.addToCart = function(prodId) {
-  const product = appData.products.find(p => p.id === prodId) || appData.adminProducts.find(p => p.id === prodId);
+  const product = appData.allProductsForSearch.find(p => p.id === prodId) || 
+                  appData.products.find(p => p.id === prodId) || 
+                  appData.adminProducts.find(p => p.id === prodId);
   if (!product) return;
   cart.push(product);
   updateCartUI();
