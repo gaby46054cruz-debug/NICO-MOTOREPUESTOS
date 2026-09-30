@@ -39,7 +39,7 @@ let appData = {
     styles: {
       colorType: "solid",
       headerBg: "#121212",
-      bodyBg: "#0a0a0a",
+      bodyBg: "#0a0a0a", 
       accentColor: "#00f3ff",
       cardBg: "#1e1e1e",
       textColor: "#ffffff",
